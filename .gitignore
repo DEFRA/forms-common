@@ -1,0 +1,15 @@
+.DS_Store
+.claude/
+.npm/
+.vscode
+.idea
+node_modules
+npm-debug.log
+*.log
+coverage
+.cache
+/dist/
+
+.env
+
+*.tsbuildinfo

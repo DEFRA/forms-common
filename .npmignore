@@ -1,0 +1,8 @@
+/*.config.*
+*.{jest,test}?(.d).{js,ts}?(.map)
+.*
+tsconfig.*
+*.tsbuildinfo
+coverage/
+typings/
+sonar-project.properties
