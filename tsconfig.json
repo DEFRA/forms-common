@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "~/*": ["./*"]
+    }
+  },
+  "include": [
+    "**/*.cjs",
+    "**/*.js",
+    "**/*.mjs",
+    "**/*.d.ts",
+    ".prettierrc.*",
+    ".lintstagedrc.*"
+  ],
+  "exclude": ["dist/**/*", "coverage/**/*", "node_modules"]
+}
