@@ -35,9 +35,9 @@
     "test:watch": "jest --color --watch"
   },
   "devDependencies": {
-    "@babel/cli": "^7.29.7",
-    "@babel/core": "^7.29.7",
-    "@babel/preset-env": "^7.29.7",
+    "@babel/cli": "^8.0.6",
+    "@babel/core": "^8.0.6",
+    "@babel/preset-env": "^8.0.6",
     "@defra/hapi-tracing": "^1.30.0",
     "@hapi/hapi": "^21.4.9",
     "@types/jest": "^29.5.14",
@@ -57,7 +57,7 @@
     "pino": "^10.3.1",
     "prettier": "^3.8.3",
     "tsc-alias": "^1.8.11",
-    "typescript": "^5.8.2",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.56.1"
   },
   "peerDependencies": {
