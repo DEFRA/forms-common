@@ -1,0 +1,50 @@
+const { NODE_ENV } = process.env
+
+/**
+ * Babel config
+ * @type {TransformOptions}
+ */
+module.exports = {
+  browserslistEnv: 'node',
+  plugins: [
+    [
+      'module-resolver',
+      {
+        root: ['./'],
+        alias: { '~': '.' }
+      }
+    ]
+  ],
+  presets: [
+    [
+      '@babel/preset-env',
+      {
+        // Apply bug fixes to avoid transforms
+        bugfixes: true,
+
+        // Apply ES module transforms for Jest
+        // https://jestjs.io/docs/ecmascript-modules
+        modules: NODE_ENV === 'test' ? 'auto' : false
+      }
+    ]
+  ],
+  env: {
+    test: {
+      plugins: [
+        [
+          'replace-import-extension',
+          {
+            extMapping: {
+              '.cjs': '',
+              '.js': ''
+            }
+          }
+        ]
+      ]
+    }
+  }
+}
+
+/**
+ * @import { TransformOptions } from '@babel/core'
+ */
