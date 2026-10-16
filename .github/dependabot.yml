@@ -69,6 +69,12 @@ updates:
       # Include direct package.json updates
       - dependency-type: direct
 
+    ignore:
+      # Hold TypeScript within the typescript-eslint peer range (>=4.8.4 <6.1.0)
+      # Remove once typescript-eslint supports newer TypeScript versions
+      - dependency-name: 'typescript'
+        versions: ['>=6.1.0']
+
   # Update GitHub Actions
   - package-ecosystem: github-actions
     directory: /
