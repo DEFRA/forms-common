@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 
 /**
- * SNS and SQS message attribute names used to carry the log context
+ * SNS and SQS message attribute names used to carry the log context, including correlation (trace) and user ID
  */
 export const CORRELATION_ID_ATTRIBUTE = 'correlationId'
 export const USER_ID_ATTRIBUTE = 'userId'
