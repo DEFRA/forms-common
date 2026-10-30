@@ -12,6 +12,8 @@ import {
 describe('logger-options', () => {
   const correlationId = '1066e8cc-8e1e-4671-8ad7-b4cd9c95bb94'
   const userId = '86758ba9-92e7-4287-9751-7705e449f0a5'
+  const sessionId = 'c3a2e5f4-2b8e-4e1f-9a8d-3f6b7c1d2e9a'
+  const referenceNumber = 'ABC-123-DEF'
 
   describe('logContextMixin', () => {
     it('should add nothing outside of a log context', () => {
@@ -29,6 +31,24 @@ describe('logger-options', () => {
         expect(logContextMixin()).toEqual({
           trace: { id: correlationId },
           user: { id: userId }
+        })
+      })
+    })
+
+    it('should add the session ID and reference number when there are some', () => {
+      const context = createLogContext({
+        correlationId,
+        userId,
+        sessionId,
+        referenceNumber
+      })
+
+      runWithLogContext(context, () => {
+        expect(logContextMixin()).toEqual({
+          trace: { id: correlationId },
+          user: { id: userId },
+          transaction: { id: sessionId },
+          span: { id: referenceNumber }
         })
       })
     })

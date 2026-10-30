@@ -3,16 +3,22 @@ import {
   getCorrelationId,
   getLogMessagePrefix,
   getMessageAttributes,
+  getReferenceNumber,
+  getSessionId,
   getUserId,
   runWithLogContext,
   runWithMessageLogContext,
   sanitiseId,
+  setReferenceNumber,
+  setSessionId,
   setUserId
 } from '~/src/logging/log-context.js'
 
 describe('log-context', () => {
   const correlationId = '1066e8cc-8e1e-4671-8ad7-b4cd9c95bb94'
   const userId = '86758ba9-92e7-4287-9751-7705e449f0a5'
+  const sessionId = 'c3a2e5f4-2b8e-4e1f-9a8d-3f6b7c1d2e9a'
+  const referenceNumber = 'ABC-123-DEF'
 
   describe('sanitiseId', () => {
     it('should keep a safe ID', () => {
@@ -37,16 +43,22 @@ describe('log-context', () => {
 
   describe('createLogContext', () => {
     it('should use the supplied IDs', () => {
-      expect(createLogContext({ correlationId, userId })).toEqual({
+      expect(
+        createLogContext({ correlationId, userId, sessionId, referenceNumber })
+      ).toEqual({
         correlationId,
-        userId
+        userId,
+        sessionId,
+        referenceNumber
       })
     })
 
     it('should generate a correlation ID when none is supplied', () => {
       expect(createLogContext()).toEqual({
         correlationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-        userId: undefined
+        userId: undefined,
+        sessionId: undefined,
+        referenceNumber: undefined
       })
     })
   })
@@ -55,6 +67,8 @@ describe('log-context', () => {
     it('should have no context outside of a run', () => {
       expect(getCorrelationId()).toBeUndefined()
       expect(getUserId()).toBeUndefined()
+      expect(getSessionId()).toBeUndefined()
+      expect(getReferenceNumber()).toBeUndefined()
       expect(getLogMessagePrefix()).toBe('')
       expect(getMessageAttributes()).toBeUndefined()
     })
@@ -109,6 +123,65 @@ describe('log-context', () => {
     })
   })
 
+  describe('setSessionId', () => {
+    it('should set the session ID on the current context', () => {
+      runWithLogContext(createLogContext({ correlationId }), () => {
+        setSessionId(sessionId)
+
+        expect(getSessionId()).toBe(sessionId)
+      })
+    })
+
+    it('should keep the session ID when given no value', () => {
+      runWithLogContext(createLogContext({ correlationId, sessionId }), () => {
+        setSessionId(null)
+
+        expect(getSessionId()).toBe(sessionId)
+      })
+    })
+
+    it('should do nothing outside of a context', () => {
+      setSessionId(sessionId)
+
+      expect(getSessionId()).toBeUndefined()
+    })
+  })
+
+  describe('setReferenceNumber', () => {
+    it('should set the reference number on the current context', () => {
+      runWithLogContext(createLogContext({ correlationId }), () => {
+        setReferenceNumber(referenceNumber)
+
+        expect(getReferenceNumber()).toBe(referenceNumber)
+      })
+    })
+
+    it('should replace unsafe characters', () => {
+      runWithLogContext(createLogContext({ correlationId }), () => {
+        setReferenceNumber('ABC 123')
+
+        expect(getReferenceNumber()).toBe('ABC_123')
+      })
+    })
+
+    it('should keep the reference number when given no value', () => {
+      runWithLogContext(
+        createLogContext({ correlationId, referenceNumber }),
+        () => {
+          setReferenceNumber(undefined)
+
+          expect(getReferenceNumber()).toBe(referenceNumber)
+        }
+      )
+    })
+
+    it('should do nothing outside of a context', () => {
+      setReferenceNumber(referenceNumber)
+
+      expect(getReferenceNumber()).toBeUndefined()
+    })
+  })
+
   describe('getMessageAttributes', () => {
     it('should return the correlation ID', () => {
       runWithLogContext(createLogContext({ correlationId }), () => {
@@ -126,6 +199,22 @@ describe('log-context', () => {
         })
       })
     })
+
+    it('should return the session ID and reference number when there are some', () => {
+      const context = createLogContext({
+        correlationId,
+        sessionId,
+        referenceNumber
+      })
+
+      runWithLogContext(context, () => {
+        expect(getMessageAttributes()).toEqual({
+          correlationId: { DataType: 'String', StringValue: correlationId },
+          sessionId: { DataType: 'String', StringValue: sessionId },
+          referenceNumber: { DataType: 'String', StringValue: referenceNumber }
+        })
+      })
+    })
   })
 
   describe('runWithMessageLogContext', () => {
@@ -133,16 +222,25 @@ describe('log-context', () => {
       const message = {
         MessageAttributes: {
           correlationId: { DataType: 'String', StringValue: correlationId },
-          userId: { DataType: 'String', StringValue: userId }
+          userId: { DataType: 'String', StringValue: userId },
+          sessionId: { DataType: 'String', StringValue: sessionId },
+          referenceNumber: { DataType: 'String', StringValue: referenceNumber }
         }
       }
 
       const result = runWithMessageLogContext(message, () => [
         getCorrelationId(),
-        getUserId()
+        getUserId(),
+        getSessionId(),
+        getReferenceNumber()
       ])
 
-      expect(result).toEqual([correlationId, userId])
+      expect(result).toEqual([
+        correlationId,
+        userId,
+        sessionId,
+        referenceNumber
+      ])
     })
 
     it('should generate a correlation ID for a message without attributes', () => {

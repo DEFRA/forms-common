@@ -33,12 +33,14 @@ The package is published as ES modules. A service that runs its tests through Ba
 
 ### Log context
 
-A log context holds the correlation ID and the user ID of the request or queue message being processed. It is kept in an `AsyncLocalStorage`, so code does not have to pass the IDs around or add them to each log call.
+A log context holds the correlation ID, the user ID, the session ID and the form reference number of the request or queue message being processed. It is kept in an `AsyncLocalStorage`, so code does not have to pass the IDs around or add them to each log call.
 
 Every log line written inside a log context has:
 
 - a `trace.id` property with the correlation ID
 - a `user.id` property with the user ID, when a user is known
+- a `transaction.id` property with the session ID (for example the yar session ID), when a session is known
+- a `span.id` property with the reference number of the form being completed, when one is known
 - the user ID at the start of the message text, as `[uid:<user ID>]`
 
 The user ID is written into the message text because the CDP platform keeps `trace.id` but drops `user.id`. The message text is the only place the user ID can be found in the CDP log viewer.
@@ -77,7 +79,14 @@ await server.register({
     tracingPlugin: tracing.plugin,
 
     // Account ID of the authenticated user
-    getUserId: (request) => request.auth.credentials.user?.id
+    getUserId: (request) => request.auth.credentials.user?.id,
+
+    // ID of the user's session
+    getSessionId: (request) => request.yar.id,
+
+    // Reads the session ID and form reference number sent by another forms
+    // service. Only for services that are not called by browsers.
+    readLogContextHeaders: false
   }
 })
 ```
@@ -86,6 +95,10 @@ await server.register({
 - `tracingPlugin` is registered by this plugin, so the service must not register `@defra/hapi-tracing` itself. `getTraceId` then returns the same correlation ID, including an ID this plugin generated. It is optional.
 - `getUserId` is called once the credentials of a request are known. It is optional.
 - Call `setUserId(accountId)` when the user only becomes known while the request is handled, for example at sign in.
+- `getSessionId` is called in `onPreAuth`, after `@hapi/yar` has loaded the session. The plugin can be registered before or after yar. It is optional.
+- Call `setSessionId(sessionId)` when the session is replaced while the request is handled, for example after `request.yar.reset()`.
+- Call `setReferenceNumber(referenceNumber)` once the form being completed is known. In `forms-runner` this is done in the `onRequest` callback of `@defra/forms-engine-plugin`.
+- `readLogContextHeaders` reads the session ID from the `x-forms-session-id` header and the reference number from the `x-forms-reference-number` header. It is off by default. Only turn it on in a service that is called by other forms services and never by a browser, otherwise anyone could set the values that are logged.
 
 The plugin wraps two private hapi request methods (`_lifecycle` and `_reply`), the same way `@defra/hapi-tracing` does. Run the tests of this project when upgrading hapi.
 
@@ -102,6 +115,30 @@ const headersWithUser = applyUserIdHeader(headers)
 ```
 
 `applyUserIdHeader` adds the `x-forms-user-id` header (`USER_ID_HEADER`). A receiving service must only trust this header on a request from an authenticated service.
+
+To carry the session ID and the form reference number on to another forms service, add them on top of the correlation ID and the user ID:
+
+```javascript
+import {
+  applyLogContextHeaders,
+  applyTraceHeaders,
+  applyUserIdHeader
+} from '@defra/forms-common'
+
+const headers = applyLogContextHeaders(
+  applyUserIdHeader(applyTraceHeaders(options.headers, 'x-cdp-request-id'))
+)
+```
+
+`applyLogContextHeaders` adds the `x-forms-session-id` header (`SESSION_ID_HEADER`) and the `x-forms-reference-number` header (`REFERENCE_NUMBER_HEADER`) when the log context has the values. The receiving service must turn on `readLogContextHeaders` to log them.
+
+Only add these headers to requests to other forms services. The session ID identifies the user's session, so it must not be sent to a service outside forms, such as GOV.UK Notify, GOV.UK Pay or Azure AD. `applyTraceHeaders` does not add them for this reason. Each service wraps `applyLogContextHeaders` in a function that checks the origin of the request URL against the URLs of the forms services in its configuration:
+
+| Service          | Sends the headers to                                                                                  |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| `forms-designer` | `forms-manager`, `forms-audit-api`, `forms-entitlement-api`, `forms-submission-api` and the listeners |
+| `forms-runner`   | `forms-manager` and `forms-submission-api`                                                            |
+| `forms-manager`  | `forms-entitlement-api`                                                                               |
 
 ### SNS and SQS messages
 
@@ -136,7 +173,16 @@ for (const message of Messages) {
 }
 ```
 
-A new correlation ID is generated for a message that has no attributes.
+The message attributes are:
+
+| Attribute         | Value                             |
+| ----------------- | --------------------------------- |
+| `correlationId`   | Correlation ID                    |
+| `userId`          | User ID, when known               |
+| `sessionId`       | Session ID, when known            |
+| `referenceNumber` | Form reference number, when known |
+
+A new correlation ID is generated for a message that has no attributes. SNS and SQS allow at most 10 attributes on a message, so a publisher that adds its own attributes must keep the total within that limit.
 
 An SQS queue subscribed to an SNS topic only receives the message attributes when raw message delivery is enabled on the subscription.
 
@@ -149,8 +195,54 @@ An SQS queue subscribed to an SNS topic only receives the message attributes whe
 | `getCorrelationId()`             | Correlation ID of the current log context                          |
 | `getUserId()`                    | User ID of the current log context                                 |
 | `setUserId(userId)`              | Sets the user ID on the current log context                        |
+| `getSessionId()`                 | Session ID of the current log context                              |
+| `setSessionId(sessionId)`        | Sets the session ID on the current log context                     |
+| `getReferenceNumber()`           | Form reference number of the current log context                   |
+| `setReferenceNumber(reference)`  | Sets the form reference number on the current log context          |
 | `getLogMessagePrefix()`          | Text added to the start of each log message                        |
 | `sanitiseId(value)`              | Restricts an ID to characters that are safe to log and send        |
+
+## Services
+
+| Service                     | Uses this project | Session ID                                   | Reference number                             |
+| --------------------------- | ----------------- | -------------------------------------------- | -------------------------------------------- |
+| `forms-designer`            | Yes               | From yar                                     | Not applicable                               |
+| `forms-runner`              | Yes               | From yar                                     | From `@defra/forms-engine-plugin`            |
+| `forms-manager`             | Yes               | From the headers sent by designer and runner | From the headers sent by designer and runner |
+| `forms-identity-api`        | Yes               | Not used                                     | Not used                                     |
+| `forms-submission-api`      | No                | Not logged                                   | Not logged                                   |
+| `forms-entitlement-api`     | No                | Not logged                                   | Not logged                                   |
+| `forms-audit-api`           | No                | Not logged                                   | Not logged                                   |
+| `forms-notify-listener`     | No                | Not logged                                   | Not logged                                   |
+| `forms-sharepoint-listener` | No                | Not logged                                   | Not logged                                   |
+
+A service that does not use this project ignores the headers and message attributes. It will log the values once it uses this project, with `readLogContextHeaders` turned on for HTTP requests and `runWithMessageLogContext` for SQS messages.
+
+## Limitations
+
+### Session ID
+
+- The session ID is set in `onPreAuth`. Log lines written before then, such as those written by `onRequest` extensions, do not have it.
+- `forms-designer` configures yar with `storeBlank: false`. Until something is written to the session, yar generates a new session ID for each request, so requests made before sign in do not share a session ID.
+- After `request.yar.reset()` the session has a new ID. The log context keeps the old ID unless the service calls `setSessionId`.
+- A request that does not use a session, such as a request for a static file, has no session ID.
+
+### Reference number
+
+- The reference number is set by the `onRequest` callback of `@defra/forms-engine-plugin`, which runs once the engine has loaded the state of the form. Log lines written earlier in the request do not have it.
+- The engine does not call `onRequest` on every route. The payment routes and the file upload status route do not have the reference number. Nor do the runner's own routes, such as save and exit and the authentication routes.
+- The engine clears the state of the form after it is submitted. The confirmation page then generates a new reference number, so its log lines have a different reference number from the submission.
+
+### Log output
+
+- The session ID and the reference number are only written to `transaction.id` and `span.id`, not to the message text. This relies on the CDP platform keeping these properties. If it drops them, as it does `user.id`, they will need to be added to the message prefix.
+- `@elastic/ecs-pino-format` replaces `transaction.id` and `span.id` with its own values when the Elastic APM agent (`elastic-apm-node`) is running. No forms service runs the agent. If one starts to, these properties will have to move.
+
+### Calls between services
+
+- Requests made through the HTTP client of `@defra/forms-engine-plugin`, for example to `forms-submission-api`, GOV.UK Pay and GOV.UK Notify, do not use this project, so they do not carry the session ID or the reference number. The engine would have to use this project as a peer dependency, so that it shares the log context of the runner, to change this.
+- Services that do not use this project do not log the values they receive, and do not pass them on. See [Services](#services).
+- The values are only passed on through HTTP headers and SNS and SQS message attributes. Work started in another way, such as a scheduled task, has no session ID or reference number.
 
 ## Development
 

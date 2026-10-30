@@ -1,14 +1,26 @@
 import {
   createLogContext,
   runWithLogContext,
+  setSessionId,
   setUserId
 } from '~/src/logging/log-context.js'
+import {
+  REFERENCE_NUMBER_HEADER,
+  SESSION_ID_HEADER
+} from '~/src/tracing/headers.js'
+
+/**
+ * Name of the `@hapi/yar` plugin, which loads the session in `onPreAuth`
+ */
+const YAR_PLUGIN_NAME = '@hapi/yar'
 
 /**
  * @typedef {object} RequestTracingOptions
  * @property {string | null} [tracingHeader] - Name of the header that carries the correlation ID between services. A correlation ID is still generated for each request when there is none.
  * @property {Plugin<{ tracingHeader?: string }>} [tracingPlugin] - The `tracing.plugin` of `@defra/hapi-tracing`. It is registered after the log context is started, so `getTraceId` returns the same correlation ID. The service passes in its own copy because the module holds the trace ID.
  * @property {(request: Request) => string | undefined} [getUserId] - Gets the unique account ID of the authenticated user, never their email address. Called for each request on a route with authentication, once the credentials are known.
+ * @property {(request: Request) => string | null | undefined} [getSessionId] - Gets the ID of the user's session, such as `request.yar.id`. Called for each request in `onPreAuth`, after `@hapi/yar` has loaded the session.
+ * @property {boolean} [readLogContextHeaders] - Reads the session ID and the form reference number from the headers sent by another forms service. Only enable it on a service that is called by other services, never on a service that browsers call.
  */
 
 /**
@@ -31,20 +43,31 @@ function wrapCycle(request, cycle, context) {
 
 /**
  * Starts a log context for every request, holding the correlation ID from the
- * tracing header (or a new ID when the caller sent none) and the ID of the
- * authenticated user. A logger set up with `logContextMixin` and
- * `addLogContextToMessage` writes both on every log line.
+ * tracing header (or a new ID when the caller sent none), the ID of the
+ * authenticated user and the ID of the user's session. A logger set up with
+ * `logContextMixin` and `addLogContextToMessage` writes them on every log line.
  * @type {Plugin<RequestTracingOptions | undefined>}
  */
 export const requestTracing = {
   name: 'request-tracing',
   async register(server, options = {}) {
-    const { tracingHeader, tracingPlugin, getUserId } = options
+    const {
+      tracingHeader,
+      tracingPlugin,
+      getUserId,
+      getSessionId,
+      readLogContextHeaders
+    } = options
 
     server.ext('onRequest', (request, h) => {
+      const { headers } = request
       const context = createLogContext({
-        correlationId: tracingHeader
-          ? request.headers[tracingHeader]
+        correlationId: tracingHeader ? headers[tracingHeader] : undefined,
+        sessionId: readLogContextHeaders
+          ? headers[SESSION_ID_HEADER]
+          : undefined,
+        referenceNumber: readLogContextHeaders
+          ? headers[REFERENCE_NUMBER_HEADER]
           : undefined
       })
 
@@ -60,6 +83,19 @@ export const requestTracing = {
 
       return h.continue
     })
+
+    if (getSessionId) {
+      // yar may be registered before or after this plugin
+      server.ext(
+        'onPreAuth',
+        (request, h) => {
+          setSessionId(getSessionId(request))
+
+          return h.continue
+        },
+        { after: [YAR_PLUGIN_NAME] }
+      )
+    }
 
     if (getUserId) {
       server.ext('onCredentials', (request, h) => {

@@ -2,10 +2,23 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 
 /**
- * SNS and SQS message attribute names used to carry the log context, which includes correlation (trace) and user ID
+ * SNS and SQS message attribute names used to carry the log context, which
+ * includes the correlation (trace) ID, user ID, session ID and form reference
+ * number
  */
 export const CORRELATION_ID_ATTRIBUTE = 'correlationId'
 export const USER_ID_ATTRIBUTE = 'userId'
+export const SESSION_ID_ATTRIBUTE = 'sessionId'
+export const REFERENCE_NUMBER_ATTRIBUTE = 'referenceNumber'
+
+/**
+ * Names of the {@link LogContext} properties that can be set after the log
+ * context is created
+ * NOTE: Allows divergence from the above SNS/SQS attribute names.
+ */
+const USER_ID_PROPERTY = 'userId'
+const SESSION_ID_PROPERTY = 'sessionId'
+const REFERENCE_NUMBER_PROPERTY = 'referenceNumber'
 
 const MAX_ID_LENGTH = 128
 const UNSAFE_ID_CHARACTERS = /[^\w.:-]/g
@@ -14,6 +27,8 @@ const UNSAFE_ID_CHARACTERS = /[^\w.:-]/g
  * @typedef {object} LogContext
  * @property {string} correlationId - ID shared by every log line of one request, across services
  * @property {string} [userId] - Unique account ID of the signed in user
+ * @property {string} [sessionId] - ID of the user's session, such as the yar session ID
+ * @property {string} [referenceNumber] - Reference number of the form being completed
  */
 
 /**
@@ -28,9 +43,9 @@ const UNSAFE_ID_CHARACTERS = /[^\w.:-]/g
  */
 
 /**
- * Holds the correlation ID and user ID of the request or queue message being
- * processed, so that every log line includes them without the caller passing
- * them in.
+ * Holds the correlation ID, user ID, session ID and form reference number of
+ * the request or queue message being processed, so that every log line
+ * includes them without the caller passing them in.
  * @type {AsyncLocalStorage<LogContext>}
  */
 const storage = new AsyncLocalStorage()
@@ -53,13 +68,15 @@ export function sanitiseId(value) {
 
 /**
  * Creates a log context. A correlation ID is generated when none is supplied.
- * @param {{ correlationId?: unknown, userId?: unknown }} [values]
+ * @param {{ correlationId?: unknown, userId?: unknown, sessionId?: unknown, referenceNumber?: unknown }} [values]
  * @returns {LogContext}
  */
 export function createLogContext(values = {}) {
   return {
     correlationId: sanitiseId(values.correlationId) ?? randomUUID(),
-    userId: sanitiseId(values.userId)
+    userId: sanitiseId(values.userId),
+    sessionId: sanitiseId(values.sessionId),
+    referenceNumber: sanitiseId(values.referenceNumber)
   }
 }
 
@@ -89,10 +106,27 @@ export function runWithMessageLogContext(message, fn) {
   const attributes = message.MessageAttributes
   const context = createLogContext({
     correlationId: attributes?.[CORRELATION_ID_ATTRIBUTE]?.StringValue,
-    userId: attributes?.[USER_ID_ATTRIBUTE]?.StringValue
+    userId: attributes?.[USER_ID_ATTRIBUTE]?.StringValue,
+    sessionId: attributes?.[SESSION_ID_ATTRIBUTE]?.StringValue,
+    referenceNumber: attributes?.[REFERENCE_NUMBER_ATTRIBUTE]?.StringValue
   })
 
   return runWithLogContext(context, fn)
+}
+
+/**
+ * Sets an ID on the current log context. The value is ignored when there is
+ * no current log context or the ID is not valid after sanitising.
+ * @param {typeof USER_ID_PROPERTY | typeof SESSION_ID_PROPERTY | typeof REFERENCE_NUMBER_PROPERTY} property
+ * @param {unknown} value
+ */
+function setLogContextId(property, value) {
+  const context = storage.getStore()
+  const id = sanitiseId(value)
+
+  if (context && id) {
+    context[property] = id
+  }
 }
 
 /**
@@ -115,12 +149,39 @@ export function getUserId() {
  * @param {unknown} userId
  */
 export function setUserId(userId) {
-  const context = storage.getStore()
-  const id = sanitiseId(userId)
+  setLogContextId(USER_ID_PROPERTY, userId)
+}
 
-  if (context && id) {
-    context.userId = id
-  }
+/**
+ * @returns {string | undefined}
+ */
+export function getSessionId() {
+  return storage.getStore()?.sessionId
+}
+
+/**
+ * Sets the session ID on the current log context, for example when the
+ * session is replaced while the request is handled
+ * @param {unknown} sessionId
+ */
+export function setSessionId(sessionId) {
+  setLogContextId(SESSION_ID_PROPERTY, sessionId)
+}
+
+/**
+ * @returns {string | undefined}
+ */
+export function getReferenceNumber() {
+  return storage.getStore()?.referenceNumber
+}
+
+/**
+ * Sets the reference number of the form being completed on the current log
+ * context
+ * @param {unknown} referenceNumber
+ */
+export function setReferenceNumber(referenceNumber) {
+  setLogContextId(REFERENCE_NUMBER_PROPERTY, referenceNumber)
 }
 
 /**
@@ -147,6 +208,20 @@ export function getMessageAttributes() {
     attributes[USER_ID_ATTRIBUTE] = {
       DataType: 'String',
       StringValue: context.userId
+    }
+  }
+
+  if (context.sessionId) {
+    attributes[SESSION_ID_ATTRIBUTE] = {
+      DataType: 'String',
+      StringValue: context.sessionId
+    }
+  }
+
+  if (context.referenceNumber) {
+    attributes[REFERENCE_NUMBER_ATTRIBUTE] = {
+      DataType: 'String',
+      StringValue: context.referenceNumber
     }
   }
 
