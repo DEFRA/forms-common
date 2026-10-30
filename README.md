@@ -130,11 +130,18 @@ const headers = applyLogContextHeaders(
 
 Only add these headers to requests to other forms services. The session ID identifies the user's session, so it must not be sent to a service outside forms, such as GOV.UK Notify, GOV.UK Pay or Azure AD. `applyTraceHeaders` does not add them for this reason. Each service wraps `applyLogContextHeaders` in a function that checks the origin of the request URL against the URLs of the forms services in its configuration:
 
-| Service          | Sends the headers to                                                                                  |
-| ---------------- | ----------------------------------------------------------------------------------------------------- |
-| `forms-designer` | `forms-manager`, `forms-audit-api`, `forms-entitlement-api`, `forms-submission-api` and the listeners |
-| `forms-runner`   | `forms-manager` and `forms-submission-api`                                                            |
-| `forms-manager`  | `forms-entitlement-api`                                                                               |
+| Service                     | Sends the headers to                                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `forms-designer`            | `forms-manager`, `forms-audit-api`, `forms-entitlement-api`, `forms-submission-api` and the listeners |
+| `forms-runner`              | `forms-manager` and `forms-submission-api`                                                            |
+| `forms-manager`             | `forms-entitlement-api`                                                                               |
+| `forms-audit-api`           | `forms-entitlement-api`                                                                               |
+| `forms-submission-api`      | `forms-manager` and `forms-entitlement-api`                                                           |
+| `forms-notify-listener`     | `forms-manager` and `forms-entitlement-api`                                                           |
+| `forms-sharepoint-listener` | `forms-manager` and `forms-entitlement-api`                                                           |
+| `forms-newls-cwt-listener`  | `forms-manager` and `forms-entitlement-api`                                                           |
+| `forms-adaptor-template`    | `forms-manager`                                                                                       |
+| `forms-identity-ui`         | `forms-identity-api` (session ID only)                                                                |
 
 ### SNS and SQS messages
 
@@ -180,7 +187,11 @@ The message attributes are:
 
 A new correlation ID is generated for a message that has no attributes. SNS and SQS allow at most 10 attributes on a message, so a publisher that adds its own attributes must keep the total within that limit.
 
-An SQS queue subscribed to an SNS topic only receives the message attributes when raw message delivery is enabled on the subscription.
+An SQS queue subscribed to an SNS topic only receives the message attributes when raw message delivery is enabled on the subscription. CDP enables it on the subscriptions it creates.
+
+A consumer only receives the message attributes when it asks for them with `MessageAttributeNames`. This includes reading messages from a dead letter queue.
+
+When a consumer resubmits a message from its dead letter queue, it sends the attributes of the original message with it, so the resubmitted message keeps its log context. When the original message cannot be found, it sends `getMessageAttributes()`, which holds the context of the request that asked for the resubmit. A redrive started from the AWS console or with `StartMessageMoveTask` keeps the attributes without any code.
 
 ### Other functions
 
@@ -199,26 +210,29 @@ An SQS queue subscribed to an SNS topic only receives the message attributes whe
 
 ## Services
 
-| Service                     | Uses this project | Session ID                                   | Reference number                             |
-| --------------------------- | ----------------- | -------------------------------------------- | -------------------------------------------- |
-| `forms-designer`            | Yes               | From yar                                     | Not applicable                               |
-| `forms-runner`              | Yes               | From yar                                     | From `@defra/forms-engine-plugin`            |
-| `forms-manager`             | Yes               | From the headers sent by designer and runner | From the headers sent by designer and runner |
-| `forms-identity-api`        | Yes               | Not used                                     | Not used                                     |
-| `forms-submission-api`      | No                | Not logged                                   | Not logged                                   |
-| `forms-entitlement-api`     | No                | Not logged                                   | Not logged                                   |
-| `forms-audit-api`           | No                | Not logged                                   | Not logged                                   |
-| `forms-notify-listener`     | No                | Not logged                                   | Not logged                                   |
-| `forms-sharepoint-listener` | No                | Not logged                                   | Not logged                                   |
+| Service                     | Uses this project | Session ID and reference number                                   |
+| --------------------------- | ----------------- | ----------------------------------------------------------------- |
+| `forms-designer`            | Yes               | Session ID from yar. No reference number                          |
+| `forms-runner`              | Yes               | Session ID from yar. Reference number from the engine `onRequest` |
+| `forms-manager`             | Yes               | From the headers it receives                                      |
+| `forms-entitlement-api`     | Yes               | From the headers it receives                                      |
+| `forms-identity-api`        | Yes               | Session ID from the headers sent by `forms-identity-ui`           |
+| `forms-submission-api`      | Yes               | From the headers and SQS message attributes it receives           |
+| `forms-audit-api`           | Yes               | From the headers and SQS message attributes it receives           |
+| `forms-notify-listener`     | Yes               | From the headers and SQS message attributes it receives           |
+| `forms-sharepoint-listener` | Yes               | From the headers and SQS message attributes it receives           |
+| `forms-newls-cwt-listener`  | Yes               | From the headers and SQS message attributes it receives           |
+| `forms-adaptor-template`    | Yes               | From the headers and SQS message attributes it receives           |
+| `forms-identity-ui`         | Yes               | Session ID from yar. No reference number                          |
 
-A service that does not use this project ignores the headers and message attributes. It will log the values once it uses this project, with `readLogContextHeaders` turned on for HTTP requests and `runWithMessageLogContext` for SQS messages.
+Services that publish to SNS or send to SQS (`forms-designer`, `forms-runner`, `forms-manager`, `forms-entitlement-api`, `forms-notify-listener` and the dead letter queue resubmits of the listeners) add `getMessageAttributes()` to the message.
 
 ## Limitations
 
 ### Session ID
 
 - The session ID is set in `onPreAuth`. Log lines written before then, such as those written by `onRequest` extensions, do not have it.
-- `forms-designer` configures yar with `storeBlank: false`. Until something is written to the session, yar generates a new session ID for each request, so requests made before sign in do not share a session ID.
+- `forms-designer` and `forms-identity-ui` configure yar with `storeBlank: false`. Until something is written to the session, yar generates a new session ID for each request, so requests made before sign in do not share a session ID.
 - After `request.yar.reset()` the session has a new ID. The log context keeps the old ID unless the service calls `setSessionId`.
 - A request that does not use a session, such as a request for a static file, has no session ID.
 
@@ -235,8 +249,8 @@ A service that does not use this project ignores the headers and message attribu
 
 ### Calls between services
 
-- Requests made through the HTTP client of `@defra/forms-engine-plugin`, for example to `forms-submission-api`, GOV.UK Pay and GOV.UK Notify, do not use this project, so they do not carry the session ID or the reference number. The engine would have to use this project as a peer dependency, so that it shares the log context of the runner, to change this.
-- Services that do not use this project do not log the values they receive, and do not pass them on. See [Services](#services).
+- `@defra/forms-engine-plugin` does not use this project. `forms-runner` passes in its own `formsService` and `formSubmissionService`, which use the HTTP client of the runner, so calls to `forms-manager` and `forms-submission-api` carry the values. The engine's own HTTP client is still used for its other calls, such as those to the CDP uploader, GOV.UK Pay and GOV.UK Notify. These are not forms services, so they must not receive the session ID or the reference number. If the engine starts to call another forms service with its own HTTP client, the runner will have to pass in a service for that too.
+- `forms-identity-ui` is called by browsers, so it does not read the headers. Requests from `forms-runner` to its OIDC endpoints, and the journeys it handles for the runner, do not have the runner's session ID or the reference number. Each service logs its own session ID, and the correlation ID is not carried through browser redirects.
 - The values are only passed on through HTTP headers and SNS and SQS message attributes. Work started in another way, such as a scheduled task, has no session ID or reference number.
 
 ## Development
