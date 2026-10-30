@@ -45,7 +45,7 @@ function wrapCycle(request, cycle, context) {
  * Starts a log context for every request, holding the correlation ID from the
  * tracing header (or a new ID when the caller sent none), the ID of the
  * authenticated user and the ID of the user's session. A logger set up with
- * `logContextMixin` and `addLogContextToMessage` writes them on every log line.
+ * `logContextMixin` writes them on every log line.
  * @type {Plugin<RequestTracingOptions | undefined>}
  */
 export const requestTracing = {

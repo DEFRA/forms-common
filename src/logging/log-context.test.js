@@ -1,7 +1,6 @@
 import {
   createLogContext,
   getCorrelationId,
-  getLogMessagePrefix,
   getMessageAttributes,
   getReferenceNumber,
   getSessionId,
@@ -69,7 +68,6 @@ describe('log-context', () => {
       expect(getUserId()).toBeUndefined()
       expect(getSessionId()).toBeUndefined()
       expect(getReferenceNumber()).toBeUndefined()
-      expect(getLogMessagePrefix()).toBe('')
       expect(getMessageAttributes()).toBeUndefined()
     })
 
@@ -253,20 +251,6 @@ describe('log-context', () => {
         expect.stringMatching(/^[0-9a-f-]{36}$/),
         undefined
       ])
-    })
-  })
-
-  describe('getLogMessagePrefix', () => {
-    it('should be empty when there is no user ID', () => {
-      runWithLogContext(createLogContext({ correlationId }), () => {
-        expect(getLogMessagePrefix()).toBe('')
-      })
-    })
-
-    it('should include the user ID when there is one', () => {
-      runWithLogContext(createLogContext({ correlationId, userId }), () => {
-        expect(getLogMessagePrefix()).toBe(`[uid:${userId}] `)
-      })
     })
   })
 })

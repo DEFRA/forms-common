@@ -41,23 +41,19 @@ Every log line written inside a log context has:
 - a `user.id` property with the user ID, when a user is known
 - a `transaction.id` property with the session ID (for example the yar session ID), when a session is known
 - a `span.id` property with the reference number of the form being completed, when one is known
-- the user ID at the start of the message text, as `[uid:<user ID>]`
-
-The user ID is written into the message text because the CDP platform keeps `trace.id` but drops `user.id`. The message text is the only place the user ID can be found in the CDP log viewer.
 
 Always use the user's unique account ID as the user ID. Never use an email address, because it is redacted from the logs.
 
 ### Logger set up
 
-Add the mixin and the hook to the pino options of the service:
+Add the mixin to the pino options of the service:
 
 ```javascript
-import { addLogContextToMessage, logContextMixin } from '@defra/forms-common'
+import { logContextMixin } from '@defra/forms-common'
 
 export const loggerOptions = {
   // ...the service's other pino options
-  mixin: logContextMixin,
-  hooks: { logMethod: addLogContextToMessage }
+  mixin: logContextMixin
 }
 ```
 
@@ -199,7 +195,6 @@ An SQS queue subscribed to an SNS topic only receives the message attributes whe
 | `setSessionId(sessionId)`        | Sets the session ID on the current log context                     |
 | `getReferenceNumber()`           | Form reference number of the current log context                   |
 | `setReferenceNumber(reference)`  | Sets the form reference number on the current log context          |
-| `getLogMessagePrefix()`          | Text added to the start of each log message                        |
 | `sanitiseId(value)`              | Restricts an ID to characters that are safe to log and send        |
 
 ## Services
@@ -235,7 +230,7 @@ A service that does not use this project ignores the headers and message attribu
 
 ### Log output
 
-- The session ID and the reference number are only written to `transaction.id` and `span.id`, not to the message text. This relies on the CDP platform keeping these properties. If it drops them, as it does `user.id`, they will need to be added to the message prefix.
+- The IDs are only written to the structured properties `trace.id`, `user.id`, `transaction.id` and `span.id`, not to the message text. This relies on the CDP platform keeping these properties.
 - `@elastic/ecs-pino-format` replaces `transaction.id` and `span.id` with its own values when the Elastic APM agent (`elastic-apm-node`) is running. No forms service runs the agent. If one starts to, these properties will have to move.
 
 ### Calls between services

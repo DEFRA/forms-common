@@ -227,14 +227,3 @@ export function getMessageAttributes() {
 
   return attributes
 }
-
-/**
- * Gets the text written at the start of every log message. The correlation
- * ID is left out because CDP keeps the structured `trace.id` property.
- * @returns {string}
- */
-export function getLogMessagePrefix() {
-  const userId = storage.getStore()?.userId
-
-  return userId ? `[uid:${userId}] ` : ''
-}
