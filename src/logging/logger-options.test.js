@@ -4,14 +4,13 @@ import {
   createLogContext,
   runWithLogContext
 } from '~/src/logging/log-context.js'
-import {
-  addLogContextToMessage,
-  logContextMixin
-} from '~/src/logging/logger-options.js'
+import { logContextMixin } from '~/src/logging/logger-options.js'
 
 describe('logger-options', () => {
   const correlationId = '1066e8cc-8e1e-4671-8ad7-b4cd9c95bb94'
   const userId = '86758ba9-92e7-4287-9751-7705e449f0a5'
+  const sessionId = 'c3a2e5f4-2b8e-4e1f-9a8d-3f6b7c1d2e9a'
+  const referenceNumber = 'ABC-123-DEF'
 
   describe('logContextMixin', () => {
     it('should add nothing outside of a log context', () => {
@@ -32,70 +31,23 @@ describe('logger-options', () => {
         })
       })
     })
-  })
 
-  describe('addLogContextToMessage', () => {
-    const prefix = `[uid:${userId}]`
-    const logger = /** @type {Logger} */ ({})
-    const method = jest.fn()
-
-    /**
-     * @param {...unknown} args
-     */
-    function log(...args) {
-      const inputArgs = /** @type {Parameters<LogFn>} */ (args)
-
-      runWithLogContext(createLogContext({ correlationId, userId }), () => {
-        addLogContextToMessage.call(logger, inputArgs, method)
+    it('should add the session ID and reference number when there are some', () => {
+      const context = createLogContext({
+        correlationId,
+        userId,
+        sessionId,
+        referenceNumber
       })
 
-      return method.mock.calls.at(-1)
-    }
-
-    it('should leave the arguments unchanged outside of a context', () => {
-      addLogContextToMessage.call(logger, ['message'], method)
-
-      expect(method.mock.contexts[0]).toBe(logger)
-      expect(method).toHaveBeenCalledWith('message')
-    })
-
-    it('should leave the arguments unchanged when there is no user ID', () => {
-      runWithLogContext(createLogContext({ correlationId }), () => {
-        addLogContextToMessage.call(logger, ['message'], method)
+      runWithLogContext(context, () => {
+        expect(logContextMixin()).toEqual({
+          trace: { id: correlationId },
+          user: { id: userId },
+          transaction: { id: sessionId },
+          span: { id: referenceNumber }
+        })
       })
-
-      expect(method).toHaveBeenCalledWith('message')
-    })
-
-    it('should prefix a message', () => {
-      expect(log('message %s', 'value')).toEqual([
-        `${prefix} message %s`,
-        'value'
-      ])
-    })
-
-    it('should prefix a message that follows an object', () => {
-      const obj = { key: 'value' }
-
-      expect(log(obj, 'message')).toEqual([obj, `${prefix} message`])
-    })
-
-    it('should prefix the message of an error', () => {
-      const err = new Error('failure')
-
-      expect(log(err)).toEqual([err, `${prefix} failure`])
-      expect(log({ err })).toEqual([{ err }, `${prefix} failure`])
-    })
-
-    it('should add a message to an object without one', () => {
-      const obj = { key: 'value' }
-
-      expect(log(obj)).toEqual([obj, prefix])
-    })
-
-    it('should leave an object with its own message unchanged', () => {
-      expect(log({ msg: 'message' })).toEqual([{ msg: 'message' }])
-      expect(log({ message: 'message' })).toEqual([{ message: 'message' }])
     })
   })
 
@@ -107,8 +59,7 @@ describe('logger-options', () => {
         {
           base: null,
           timestamp: false,
-          mixin: logContextMixin,
-          hooks: { logMethod: addLogContextToMessage }
+          mixin: logContextMixin
         },
         { write: (line) => lines.push(line) }
       )
@@ -124,13 +75,9 @@ describe('logger-options', () => {
           level: 30,
           trace: { id: correlationId },
           user: { id: userId },
-          msg: `[uid:${userId}] inside context`
+          msg: 'inside context'
         }
       ])
     })
   })
 })
-
-/**
- * @import { LogFn, Logger } from 'pino'
- */

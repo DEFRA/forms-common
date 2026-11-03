@@ -3,21 +3,31 @@ import hapi from '@hapi/hapi'
 
 import {
   getCorrelationId,
+  getReferenceNumber,
+  getSessionId,
   getUserId,
   setUserId
 } from '~/src/logging/log-context.js'
+import {
+  REFERENCE_NUMBER_HEADER,
+  SESSION_ID_HEADER
+} from '~/src/tracing/headers.js'
 import { requestTracing } from '~/src/tracing/request-tracing.js'
 
 describe('request-tracing', () => {
   const tracingHeader = 'x-cdp-request-id'
   const correlationId = '1066e8cc-8e1e-4671-8ad7-b4cd9c95bb94'
   const userId = '86758ba9-92e7-4287-9751-7705e449f0a5'
+  const sessionId = 'c3a2e5f4-2b8e-4e1f-9a8d-3f6b7c1d2e9a'
+  const referenceNumber = 'ABC-123-DEF'
 
   /**
    * @typedef {object} Context
    * @property {string} [correlationId] - Correlation ID of the log context
    * @property {string | null} [traceId] - Trace ID of `@defra/hapi-tracing`
    * @property {string} [userId] - User ID of the log context
+   * @property {string} [sessionId] - Session ID of the log context
+   * @property {string} [referenceNumber] - Form reference number of the log context
    */
 
   /** @type {Server} */
@@ -33,7 +43,9 @@ describe('request-tracing', () => {
     return {
       correlationId: getCorrelationId(),
       traceId: getTraceId(),
-      userId: getUserId()
+      userId: getUserId(),
+      sessionId: getSessionId(),
+      referenceNumber: getReferenceNumber()
     }
   }
 
@@ -75,7 +87,8 @@ describe('request-tracing', () => {
     server.events.on('response', () => {
       responseContext = {
         correlationId: getCorrelationId(),
-        userId: getUserId()
+        userId: getUserId(),
+        sessionId: getSessionId()
       }
     })
   }
@@ -194,6 +207,79 @@ describe('request-tracing', () => {
     })
   })
 
+  describe('with a session', () => {
+    /**
+     * Stands in for `@hapi/yar`, which loads the session in `onPreAuth`
+     * @type {Plugin<void>}
+     */
+    const sessionPlugin = {
+      name: '@hapi/yar',
+      register(server) {
+        server.ext('onPreAuth', (request, h) => {
+          request.app = { sessionId }
+
+          return h.continue
+        })
+      }
+    }
+
+    beforeEach(async () => {
+      await createServer({
+        getSessionId: (request) =>
+          /** @type {{ sessionId?: string }} */ (request.app).sessionId
+      })
+
+      // Registered after the request tracing plugin, as in forms-runner
+      await server.register(sessionPlugin)
+    })
+
+    it('should add the session ID once the session is loaded', async () => {
+      const response = await server.inject({ method: 'GET', url: '/open' })
+      const result = /** @type {Context} */ (response.result)
+
+      expect(result.sessionId).toBe(sessionId)
+      expect(responseContext).toEqual({
+        correlationId: result.correlationId,
+        userId: undefined,
+        sessionId
+      })
+    })
+  })
+
+  describe('reading the log context headers', () => {
+    const logContextHeaders = {
+      [SESSION_ID_HEADER]: sessionId,
+      [REFERENCE_NUMBER_HEADER]: referenceNumber
+    }
+
+    it('should use the session ID and reference number from the headers', async () => {
+      await createServer({ readLogContextHeaders: true })
+
+      const { result } = await server.inject({
+        method: 'GET',
+        url: '/open',
+        headers: logContextHeaders
+      })
+
+      expect(result).toMatchObject({ sessionId, referenceNumber })
+    })
+
+    it('should ignore the headers unless enabled', async () => {
+      await createServer()
+
+      const { result } = await server.inject({
+        method: 'GET',
+        url: '/open',
+        headers: logContextHeaders
+      })
+
+      expect(result).toMatchObject({
+        sessionId: undefined,
+        referenceNumber: undefined
+      })
+    })
+  })
+
   describe('without options', () => {
     beforeEach(async () => {
       await createServer()
@@ -225,6 +311,6 @@ describe('request-tracing', () => {
 })
 
 /**
- * @import { Server } from '@hapi/hapi'
+ * @import { Plugin, Server } from '@hapi/hapi'
  * @import { RequestTracingOptions } from '~/src/tracing/request-tracing.js'
  */
