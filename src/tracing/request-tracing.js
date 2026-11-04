@@ -19,7 +19,7 @@ const YAR_PLUGIN_NAME = '@hapi/yar'
  * @property {string | null} [tracingHeader] - Name of the header that carries the correlation ID between services. A correlation ID is still generated for each request when there is none.
  * @property {Plugin<{ tracingHeader?: string }>} [tracingPlugin] - The `tracing.plugin` of `@defra/hapi-tracing`. It is registered after the log context is started, so `getTraceId` returns the same correlation ID. The service passes in its own copy because the module holds the trace ID.
  * @property {(request: Request) => string | undefined} [getUserId] - Gets the unique account ID of the authenticated user, never their email address. Called for each request on a route with authentication, once the credentials are known.
- * @property {(request: Request) => string | null | undefined} [getSessionId] - Gets the ID of the user's session, such as `request.yar.id`. Called for each request in `onPreAuth`, after `@hapi/yar` has loaded the session.
+ * @property {(request: Request) => string | null | undefined} [getSessionId] - Gets the ID of the user's session. Use `getRequestSessionId` for a `@hapi/yar` session. Called for each request in `onPreAuth`, after `@hapi/yar` has loaded the session.
  * @property {boolean} [readLogContextHeaders] - Reads the session ID and the form reference number from the headers sent by another forms service. Only enable it on a service that is called by other services, never on a service that browsers call.
  */
 
@@ -39,6 +39,21 @@ function wrapCycle(request, cycle, context) {
 
   internals[cycle] = (...args) =>
     runWithLogContext(context, requestCycle, ...args)
+}
+
+/**
+ * Gets the ID of the `@hapi/yar` session, which yar loads in `onPreAuth`.
+ * Services that use yar pass this as the `getSessionId` option.
+ * @param {Request} request
+ * @returns {string | null | undefined}
+ */
+export function getRequestSessionId(request) {
+  // `request.yar` is only set when the yar plugin is registered
+  const { yar } = /** @type {{ yar?: { id?: string | null } }} */ (
+    /** @type {unknown} */ (request)
+  )
+
+  return yar?.id
 }
 
 /**

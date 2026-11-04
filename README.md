@@ -62,7 +62,7 @@ export const loggerOptions = {
 Register the `requestTracing` hapi plugin after the request logger. It starts a log context for every request.
 
 ```javascript
-import { requestTracing } from '@defra/forms-common'
+import { getRequestSessionId, requestTracing } from '@defra/forms-common'
 import { tracing } from '@defra/hapi-tracing'
 
 await server.register({
@@ -77,8 +77,8 @@ await server.register({
     // Account ID of the authenticated user
     getUserId: (request) => request.auth.credentials.user?.id,
 
-    // ID of the user's session
-    getSessionId: (request) => request.yar.id,
+    // ID of the user's session, here the `@hapi/yar` session
+    getSessionId: getRequestSessionId,
 
     // Reads the session ID and form reference number sent by another forms
     // service. Only for services that are not called by browsers.
@@ -91,7 +91,7 @@ await server.register({
 - `tracingPlugin` is registered by this plugin, so the service must not register `@defra/hapi-tracing` itself. `getTraceId` then returns the same correlation ID, including an ID this plugin generated. It is optional.
 - `getUserId` is called once the credentials of a request are known. It is optional.
 - Call `setUserId(accountId)` when the user only becomes known while the request is handled, for example at sign in.
-- `getSessionId` is called in `onPreAuth`, after `@hapi/yar` has loaded the session. The plugin can be registered before or after yar. It is optional.
+- `getSessionId` is called in `onPreAuth`, after `@hapi/yar` has loaded the session. The plugin can be registered before or after yar. It is optional. Services that use yar pass `getRequestSessionId`, which returns `request.yar.id`, or `undefined` when yar is not registered.
 - Call `setSessionId(sessionId)` when the session is replaced while the request is handled, for example after `request.yar.reset()`.
 - Call `setReferenceNumber(referenceNumber)` once the form being completed is known. In `forms-runner` this is done in the `onRequest` callback of `@defra/forms-engine-plugin`.
 - `readLogContextHeaders` reads the session ID from the `x-forms-session-id` header and the reference number from the `x-forms-reference-number` header. It is off by default. Only turn it on in a service that is called by other forms services and never by a browser, otherwise anyone could set the values that are logged.
@@ -204,6 +204,7 @@ When a consumer resubmits a message from its dead letter queue, it sends the att
 | `setUserId(userId)`              | Sets the user ID on the current log context                        |
 | `getSessionId()`                 | Session ID of the current log context                              |
 | `setSessionId(sessionId)`        | Sets the session ID on the current log context                     |
+| `getRequestSessionId(request)`   | ID of the `@hapi/yar` session of a request                         |
 | `getReferenceNumber()`           | Form reference number of the current log context                   |
 | `setReferenceNumber(reference)`  | Sets the form reference number on the current log context          |
 | `sanitiseId(value)`              | Restricts an ID to characters that are safe to log and send        |

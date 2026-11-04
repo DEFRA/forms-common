@@ -12,7 +12,10 @@ import {
   REFERENCE_NUMBER_HEADER,
   SESSION_ID_HEADER
 } from '~/src/tracing/headers.js'
-import { requestTracing } from '~/src/tracing/request-tracing.js'
+import {
+  getRequestSessionId,
+  requestTracing
+} from '~/src/tracing/request-tracing.js'
 
 describe('request-tracing', () => {
   const tracingHeader = 'x-cdp-request-id'
@@ -216,7 +219,7 @@ describe('request-tracing', () => {
       name: '@hapi/yar',
       register(server) {
         server.ext('onPreAuth', (request, h) => {
-          request.app = { sessionId }
+          Object.assign(request, { yar: { id: sessionId } })
 
           return h.continue
         })
@@ -224,10 +227,7 @@ describe('request-tracing', () => {
     }
 
     beforeEach(async () => {
-      await createServer({
-        getSessionId: (request) =>
-          /** @type {{ sessionId?: string }} */ (request.app).sessionId
-      })
+      await createServer({ getSessionId: getRequestSessionId })
 
       // Registered after the request tracing plugin, as in forms-runner
       await server.register(sessionPlugin)
@@ -243,6 +243,22 @@ describe('request-tracing', () => {
         userId: undefined,
         sessionId
       })
+    })
+  })
+
+  describe('getRequestSessionId', () => {
+    it('should return the ID of the yar session', () => {
+      const request = /** @type {Request} */ (
+        /** @type {unknown} */ ({ yar: { id: sessionId } })
+      )
+
+      expect(getRequestSessionId(request)).toBe(sessionId)
+    })
+
+    it('should return undefined when yar is not registered', () => {
+      const request = /** @type {Request} */ (/** @type {unknown} */ ({}))
+
+      expect(getRequestSessionId(request)).toBeUndefined()
     })
   })
 
@@ -311,6 +327,6 @@ describe('request-tracing', () => {
 })
 
 /**
- * @import { Plugin, Server } from '@hapi/hapi'
+ * @import { Plugin, Request, Server } from '@hapi/hapi'
  * @import { RequestTracingOptions } from '~/src/tracing/request-tracing.js'
  */
