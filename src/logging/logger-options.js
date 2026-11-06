@@ -6,12 +6,18 @@ import {
 } from '~/src/logging/log-context.js'
 
 /**
- * Structured log properties that carry the log context
- * @typedef {object} LogContextMixin
- * @property {{ id: string }} [trace] - Correlation ID of the log context
- * @property {{ id: string }} [user] - User ID of the log context
- * @property {{ id: string }} [transaction] - Session ID of the log context
- * @property {{ id: string }} [span] - Form reference number of the log context
+ * Structured log properties that carry the log context.
+ *
+ * The CDP log pipeline only keeps `trace.id`, `transaction.id` and `span.id`
+ * as dotted keys (`{ "span.id": "..." }`) and `user.id` as a nested object
+ * (`{ "user": { "id": "..." } }`), and drops the other form of each, so the
+ * properties are written in the form that CDP keeps.
+ * @typedef {{
+ *   'trace.id'?: string,
+ *   user?: { id: string },
+ *   'transaction.id'?: string,
+ *   'span.id'?: string
+ * }} LogContextMixin
  */
 
 /**
@@ -26,7 +32,7 @@ export function logContextMixin() {
 
   const traceId = getCorrelationId()
   if (traceId) {
-    mixinValues.trace = { id: traceId }
+    mixinValues['trace.id'] = traceId
   }
 
   const userId = getUserId()
@@ -36,12 +42,12 @@ export function logContextMixin() {
 
   const sessionId = getSessionId()
   if (sessionId) {
-    mixinValues.transaction = { id: sessionId }
+    mixinValues['transaction.id'] = sessionId
   }
 
   const referenceNumber = getReferenceNumber()
   if (referenceNumber) {
-    mixinValues.span = { id: referenceNumber }
+    mixinValues['span.id'] = referenceNumber
   }
 
   return mixinValues

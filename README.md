@@ -42,6 +42,8 @@ Every log line written inside a log context has:
 - a `transaction.id` property with the session ID (for example the yar session ID), when a session is known
 - a `span.id` property with the reference number of the form being completed, when one is known
 
+The CDP log pipeline only keeps `trace.id`, `transaction.id` and `span.id` as dotted keys (`{ "span.id": "..." }`) and `user.id` as a nested object (`{ "user": { "id": "..." } }`). Apart from a nested `trace.id`, which it renames to the dotted key, it drops the other form of each property without an error. The mixin writes each property in the form that CDP keeps.
+
 Always use the user's unique account ID as the user ID. Never use an email address, because it is redacted from the logs.
 
 ### Logger set up
@@ -246,6 +248,7 @@ Services that publish to SNS or send to SQS (`forms-designer`, `forms-runner`, `
 ### Log output
 
 - The IDs are only written to the structured properties `trace.id`, `user.id`, `transaction.id` and `span.id`, not to the message text. This relies on the CDP platform keeping these properties.
+- To see what CDP stores in OpenSearch for a service's log lines, run the service with `LOG_FORMAT=ecs` and pipe its output through [`@defra/cdp-log-pipeline`](https://www.npmjs.com/package/@defra/cdp-log-pipeline) with `--explain`. It lists the properties that are renamed, redacted or dropped.
 - `@elastic/ecs-pino-format` replaces `transaction.id` and `span.id` with its own values when the Elastic APM agent (`elastic-apm-node`) is running. No forms service runs the agent. If one starts to, these properties will have to move.
 
 ### Calls between services

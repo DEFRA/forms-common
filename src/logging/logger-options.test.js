@@ -19,14 +19,14 @@ describe('logger-options', () => {
 
     it('should add the correlation ID', () => {
       runWithLogContext(createLogContext({ correlationId }), () => {
-        expect(logContextMixin()).toEqual({ trace: { id: correlationId } })
+        expect(logContextMixin()).toEqual({ 'trace.id': correlationId })
       })
     })
 
     it('should add the user ID when there is one', () => {
       runWithLogContext(createLogContext({ correlationId, userId }), () => {
         expect(logContextMixin()).toEqual({
-          trace: { id: correlationId },
+          'trace.id': correlationId,
           user: { id: userId }
         })
       })
@@ -42,10 +42,10 @@ describe('logger-options', () => {
 
       runWithLogContext(context, () => {
         expect(logContextMixin()).toEqual({
-          trace: { id: correlationId },
+          'trace.id': correlationId,
           user: { id: userId },
-          transaction: { id: sessionId },
-          span: { id: referenceNumber }
+          'transaction.id': sessionId,
+          'span.id': referenceNumber
         })
       })
     })
@@ -73,11 +73,49 @@ describe('logger-options', () => {
         { level: 30, msg: 'outside' },
         {
           level: 30,
-          trace: { id: correlationId },
+          'trace.id': correlationId,
           user: { id: userId },
           msg: 'inside context'
         }
       ])
+    })
+
+    it('should write the keys in the form that the CDP log pipeline keeps', () => {
+      /** @type {string[]} */
+      const lines = []
+      const logger = pino(
+        {
+          base: null,
+          timestamp: false,
+          mixin: logContextMixin
+        },
+        { write: (line) => lines.push(line) }
+      )
+
+      const context = createLogContext({
+        correlationId,
+        userId,
+        sessionId,
+        referenceNumber
+      })
+
+      runWithLogContext(context, () => {
+        logger.info('inside context')
+      })
+
+      const [line] = lines.map((value) => JSON.parse(value))
+
+      // Dotted keys, not nested objects
+      expect(line).toHaveProperty(['trace.id'], correlationId)
+      expect(line).toHaveProperty(['transaction.id'], sessionId)
+      expect(line).toHaveProperty(['span.id'], referenceNumber)
+      expect(line).not.toHaveProperty('trace')
+      expect(line).not.toHaveProperty('transaction')
+      expect(line).not.toHaveProperty('span')
+
+      // Nested object, not a dotted key
+      expect(line).toHaveProperty(['user', 'id'], userId)
+      expect(line).not.toHaveProperty(['user.id'])
     })
   })
 })
